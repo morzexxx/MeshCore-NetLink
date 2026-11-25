@@ -68,11 +68,13 @@ constexpr unsigned tagSize = 16;
 struct Peer {
   uint8_t txKey[32], rxKey[32];
   sockaddr_in endpoint, dial;
-  uint64_t local, remote, remoteBoot, challenge, candidate;
+  uint64_t local, remote, remoteBoot, challenge, candidate, probe;
   uint32_t serial, highest, seen, seenBits;
   uint32_t lastRx, nextHello, dnsAt, ackDue, tx, rx, full, expired, offline, trimmed;
   uint32_t queueDue, pingDue, retryUntil, rtt;
-  uint16_t backoff;
+  uint32_t probeDue;
+  uint8_t attempts;
+  bool probing;
   bool received, up, ackPending, noAck, modern, retryEndpoint, hasRtt, keyValid;
   FrameQueue queue;
 };
@@ -173,13 +175,22 @@ static uint64_t nonce() {
 static bool due(uint32_t now, uint32_t when) {
   return int32_t(now - when) >= 0;
 }
+// Twelve attempts per step: 5, 10, 20, ... 600 seconds after about two hours.
+static uint32_t retryDelay(uint8_t &attempts) {
+  unsigned seconds = std::min(600u, 5u << (attempts / 12));
+  if (attempts < 84) ++attempts;
+  // Spread retries after a simultaneous outage.
+  return seconds * 1000 - (seconds >= 40 ? esp_random() % (seconds * 100) : 0);
+}
 static void resetLink(Peer &p) {
   p.up = false;
   p.remote = 0;
   p.challenge = 0;
   p.local = nonce();
   p.highest = 0;
-  p.backoff = 1;
+  p.attempts = 0;
+  p.probe = 0;
+  p.probing = false;
   p.nextHello = millis();
   p.ackPending = false;
   p.noAck = false;
@@ -365,6 +376,12 @@ static void readMessage(uint32_t now) {
       continue;
     }
     if (h.kind == Hello) {
+      // If both peers probe at once, keep the smaller key as initiator.
+      if (p.probe && h.token != p.remote) {
+        if (memcmp(self->pub_key, cfg.peer[i].key, 32) < 0) return;
+        p.probe = 0;
+        p.probeDue = now + 5000;
+      }
       // A hello may solicit a challenge, but cannot move an established endpoint.
       if (p.up && (h.token != p.remote || h.boot != p.remoteBoot)) {
         if (!p.challenge || p.candidate != h.token) {
@@ -375,6 +392,13 @@ static void readMessage(uint32_t now) {
       } else
         sendMessage(i, Welcome, src, h.token);
       return;
+    }
+    if (p.probe && h.kind == Welcome && h.echo == p.probe) {
+      p.local = p.probe;
+      p.highest = 0;
+      p.challenge = 0;
+      p.up = false;
+      if (incoming.slot == int(i)) incoming.slot = -1;
     }
     if (p.challenge && h.echo == p.challenge && h.token == p.candidate) {
       if (h.kind != Pong) {
@@ -428,6 +452,8 @@ static void readMessage(uint32_t now) {
         if (f.size) f.due = now;
       p.queueDue = now;
     }
+    p.probe = 0;
+    p.probing = false;
     p.endpoint = src;
     p.received = true;
     p.lastRx = now;
@@ -539,11 +565,23 @@ static void service(unsigned i, uint32_t now) {
     resolve(i, now);
     const auto &target = p.retryEndpoint ? p.endpoint : p.dial;
     if (target.sin_port) sendMessage(i, Hello, target, 0);
-    p.nextHello = now + p.backoff * 1000;
-    p.backoff = std::min<unsigned>(p.backoff * 2, 16);
+    p.nextHello = now + retryDelay(p.attempts);
     return;
   }
+  if (p.probing && due(now, p.probeDue)) {
+    if (!p.probe) {
+      p.probe = nonce();
+      p.dnsAt = now;
+    }
+    resolve(i, now);
+    if (p.dial.sin_port) sendMessage(i, Hello, p.dial, 0, nullptr, p.probe);
+    p.probeDue = now + std::max<uint32_t>(5000, uint32_t(cfg.keep) * 1000);
+  }
   if (due(now, p.pingDue)) {
+    if (c.host[0] && !p.probing) {
+      p.probing = true;
+      p.probeDue = now + std::min<uint32_t>(3000, (settings.options[i].timeout - cfg.keep) * 500u);
+    }
     sendMessage(i, Ping, p.endpoint, p.remote);
     p.pingDue = now + uint32_t(cfg.keep) * 1000;
   } else if (p.ackPending && due(now, p.ackDue)) {
@@ -619,6 +657,7 @@ void begin(mesh::LocalIdentity &identity) {
   WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   sntp_set_time_sync_notification_cb([](timeval *tv) { syncTime = tv->tv_sec; });
+  sntp_set_sync_interval(24u * 60 * 60 * 1000);
   configTime(0, 0, "pool.ntp.org");
   connectWifi();
   esp_task_wdt_init(15, true);
@@ -702,8 +741,14 @@ void poll(mesh::RTCClock &clock) {
   if (answers && xQueueReceive(answers, &result, 0) && result.slot < peersMax) {
     auto &c = cfg.peer[result.slot];
     if (enabled(result.slot) && !strcmp(result.host, c.host)) {
-      if (result.ip)
-        peers[result.slot].dial = address(result.ip, c.port);
+      if (result.ip) {
+        auto &p = peers[result.slot];
+        if (p.dial.sin_addr.s_addr != result.ip) {
+          if (p.probe) p.probeDue = now;
+          else if (!p.up) p.nextHello = now;
+        }
+        p.dial = address(result.ip, c.port);
+      }
       else
         peers[result.slot].dnsAt = now + 5000;
     }
@@ -1032,6 +1077,10 @@ bool command(const char *line, char *reply) {
       p.queue = std::move(replacement);
     }
     p.queueDue = millis();
+    if (!p.up) {
+      p.attempts = 0;
+      p.nextHello = millis();
+    }
     if (addressChanged) {
       p.dial = {};
       p.dnsAt = p.nextHello = millis();

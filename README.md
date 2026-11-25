@@ -1,6 +1,6 @@
 # NetLink for MeshCore
 
-NetLink 0.9.2 connects independent MeshCore repeaters over authenticated UDP.
+NetLink 0.9.3 connects independent MeshCore repeaters over authenticated UDP.
 Each repeater keeps its own identity and radio settings. A peer receives a copy
 of a successfully transmitted LoRa frame and passes it through the ordinary
 MeshCore receiver. Local radio forwarding continues when a peer goes offline.

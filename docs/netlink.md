@@ -1,4 +1,4 @@
-# NetLink 0.9.2
+# NetLink 0.9.3
 
 NetLink adds a UDP peer transport to the MeshCore 1.18.0 repeater for Heltec V4.3 OLED. Up to four peers can be configured. Each board has its own MeshCore identity, name and radio settings. Internet access is optional for local forwarding.
 
@@ -48,7 +48,7 @@ A successful UDP send does not prove liveness. After the keepalive interval with
 
 ## Build and update
 
-Build with `pio run -e heltec_v43_netlink`. The output is `.pio/build/heltec_v43_netlink/firmware.bin`. For this release, `ver` returns `v1.18.0-netlink.0.9.2 (Build: 25 Nov 2026)`.
+Build with `pio run -e heltec_v43_netlink`. The output is `.pio/build/heltec_v43_netlink/firmware.bin`. For this release, `ver` returns `v1.18.0-netlink.0.9.3 (Build: 25 Nov 2026)`.
 
 For an existing Heltec V4.3 OLED with the upstream 16 MB partition map, run `start ota` and upload the application image as **Firmware**. For USB updates write only the application image to the confirmed bootable application slot. Slot 0 begins at `0x10000`; an OTA-updated device can boot slot 1. Preserve the boot selection, partition table, NVS and SPIFFS. Full erase, filesystem uploads and a changed partition map can remove the identity or settings. A blank board needs the correct bootloader and partition layout before an application-only image can boot.
 
@@ -59,3 +59,5 @@ The stock repeater preference loader imports older MeshCore settings. Existing i
 Track the upstream repeater tag and review the diff from that tag when rebasing. The `heltec_v43_netlink` environment extends the upstream Heltec repeater. The transport lives under `examples/simple_repeater/NetLink*`. Integration points are the TX completion and RX dispatcher, the authenticated repeater CLI, the main loop, and the OLED status page. CPU deep sleep is deferred while station Wi-Fi is configured or a scan is running; Wi-Fi modem sleep stays enabled. Upstream MeshCore licensing and notices apply.
 
 The `trim` diagnostic counts frames discarded by a manual capacity reduction. A slot can be enabled when its timeout exceeds keepalive. The same application binary supports USB and OTA updates.
+
+After an unanswered ping, a dialer probes the configured address before timeout. Offline retries start at five seconds and double every twelve attempts up to ten minutes, with jitter on longer intervals. Wi-Fi stays associated with ESP32 modem sleep enabled. Incoming handshakes remain available between retries. Peer edits restart the retry schedule. The NTP update interval after success is one day.

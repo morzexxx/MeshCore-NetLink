@@ -76,7 +76,7 @@ struct NeighbourInfo {
 
 #ifndef FIRMWARE_VERSION
 #ifdef MESHCORE_NETLINK
-  #define FIRMWARE_VERSION   "v1.18.0-netlink.0.9.2"
+  #define FIRMWARE_VERSION   "v1.18.0-netlink.0.9.3"
 #else
   #define FIRMWARE_VERSION   "v1.18.0"
 #endif
