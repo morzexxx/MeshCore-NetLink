@@ -1,54 +1,28 @@
-# NetLink для Heltec V4.3 OLED
+# Install NetLink on a Heltec V4.3 OLED
 
-Основа — тег `repeater-v1.18.0`, профиль PlatformIO `heltec_v43_netlink`. У каждой платы собственная штатная идентичность MeshCore. До четырёх разрешённых UDP-пиров. Для пары за NAT достаточно настроить адрес на исходящей стороне. Входящая сторона принимает аутентифицированного пира с текущего IP и порта. Обе стороны могут инициировать обмен.
+NetLink 0.9.3 targets the Heltec V4.3 OLED with the upstream 16 MB flash layout. The release image is named `Heltec-V43-OLED-NetLink-0.9.3.bin`. A local PlatformIO build produces the same type of application image under the name `firmware.bin`.
 
-Версия NetLink — **0.9.3**. Подробное описание протокола и обновлений доступно в [английском руководстве](netlink.md).
+## Update an existing repeater over Wi-Fi
 
-## Настройка
+1. Run `start ota` in the repeater CLI. The board returns an update URL.
+2. Connect to the board's `MeshCore-OTA` Wi-Fi network and open the returned URL, including `/update`. The root page displays the repeater name.
+3. Choose **Firmware**, upload the application image, and let the board restart.
+4. Reconnect to the CLI. Run `ver` to check for `v1.18.0-netlink.0.9.3`. Use `get name`, `get radio`, and `netlink.status` to check the configuration.
 
-Все команды `netlink.*` доступны через USB и в CLI репитера после входа администратором по LoRa. Номера слотов — от 1 до 4. Настройки сохраняются в NVS. На обеих платах прочитайте `netlink.id`. На каждой добавьте полный публичный ключ противоположной платы в свободный слот. На стороне за NAT укажите адрес доступной платы.
+## Update an existing repeater over USB
 
-```text
-netlink.peer 1 <64 шестнадцатеричные цифры>
-netlink.addr 1 hub.example.org 4242
-netlink.status
-netlink.status 1
+Use the same application image. Read the device's partition table and OTA boot selection to identify the active application slot before writing. On the upstream layout, slot 0 starts at `0x10000`. A board previously updated over OTA may boot slot 1.
+
+Write only the application image to the selected slot. Keeping the partition table, OTA selection, NVS, and SPIFFS preserves the board identity, access list, radio settings, and saved peer configuration. New NetLink options receive their default values when loading older settings.
+
+## First installation
+
+A blank board also needs the bootloader, partition table, and boot selection. With PlatformIO installed, connect the board over USB and run the complete environment upload from the repository root:
+
+```sh
+pio run -e heltec_v43_netlink -t upload
 ```
 
-| Команда | Действие |
-|---|---|
-| `netlink.id` | Полный публичный ключ собственного репитера |
-| `netlink.peer N KEY` | Добавить или заменить разрешённый ключ в слоте N |
-| `netlink.peer N off`, `netlink.peer N on` | Выключить или включить слот с сохранением настроек. При выключении память очереди освобождается. |
-| `netlink.queue N [ГЛУБИНА СЕКУНДЫ]` | Показать или задать очередь: 1–32 кадра, срок 3–3600 с. По умолчанию 8 и 60 с. `netlink.queue N 0` запрашивает режим без ACK. |
-| `netlink.timeout N [СЕКУНДЫ]` | Показать или изменить таймаут входящей активности. По умолчанию 120 с, строго больше общего keepalive; максимум 65535 с. |
-| `netlink.diag N` | Причины списания: `full` — вытеснен, `expired` — истёк срок, `offline` — отброшен при отключении пассивного пира. |
-| `netlink.del N` | Удалить пир |
-| `netlink.addr N HOST [PORT]` | Адрес для исходящего подключения, IPv4 или DNS. Порт по умолчанию 4242 |
-| `netlink.addr N -` | Снять адрес для исходящего подключения |
-| `netlink.port PORT` | Изменить локальный UDP-порт, по умолчанию 4242 |
-| `netlink.ka SEC` | Интервал проверки связи в простое, 1–3600 секунд, по умолчанию 25 |
-| `netlink.snr N [dB]` | SNR входящих кадров пира. По умолчанию +8 дБ, диапазон −32…+31,75, округление до 0,25 дБ. Вызов без значения показывает применённый SNR. |
-| `netlink.rssi N DBM` | Входной RSSI этого пира, от −127 до 0, по умолчанию −30 dBm |
-| `netlink.ssid NAME`, `netlink.pass PASSWORD` | Установить имя сети или пароль Wi-Fi. Плата сразу переподключается |
-| `netlink.status [N]` | Сводка или подробности одного пира. TX — кадры, подтверждённые пиром. RX — кадры, принятые входной обработкой MeshCore. Drop — сумма full, expired и offline. RTT — время в мс до ACK кадра, отправленного без повтора |
-| `netlink.diag`, `netlink.mem` | Состояние сокета и счётчики датаграмм, свободная память и крупнейший свободный блок |
-| `netlink.wifi` | При подключении показывает SSID, IP и RSSI Wi-Fi в дБм. При ожидании IP или отсутствии связи показывает состояние и настроенный SSID. |
-| `netlink.wifi scan` | Запускает фоновый поиск точек доступа 2,4 ГГц. Пока поиск идёт, повтор команды не перезапускает его. |
-| `netlink.wifi list [страница]` | Читает последний завершённый поиск от сильного сигнала к слабому. На страницу входят целые строки в пределах 136 байт, поэтому с короткими SSID видно больше сетей. Список хранится в ОЗУ до следующего успешного поиска или перезагрузки. |
+On a clean installation, the radio profile starts at 869.525 MHz, 62.5 kHz bandwidth, SF7, coding rate 4/7, TX setting 0, two-byte path hashes, and a 10% airtime budget. Configure the radio for the local network and region before deployment.
 
-## Передача и восстановление
-
-После успешного LoRa TX плата ставит копию эфирных байтов в очередь каждого пира. Получатель разбирает кадр штатным диспетчером. Дальнейшее решение о ретрансляции принимает MeshCore. Интернет может отключаться независимо от радиосети. Часы синхронизируются по SNTP через pool.ntp.org.
-
-Каждое направление использует отдельный ключ HMAC-SHA256, выведенный из общего секрета штатных ключей MeshCore. Заголовок и содержимое защищены 16-байтовым кодом подлинности. Полезная нагрузка сохраняет исходное эфирное представление. Это попарная аутентификация. Сессии используют случайные токены, подтверждение вызова и номера датаграмм. ACK содержит битовую карту, повторы отправляются с увеличивающимся интервалом. При двух новых прошивках нулевая очередь хотя бы на одном конце включает режим без ACK в обе стороны. Со старым пиром сохраняется надёжный режим. При локальной настройке 0 для такого сеанса используется 8 кадров. В режиме noack статистика показывает q=0/0, tx=-, drop=- и rtt=-. При смене режима создаётся новая сессия; увеличение обычной очереди не разрывает соединение. Пассивный пир без адреса в состоянии down ждёт входящего подключения, не копит кадры и не набирает прежний адрес.
-
-На чистой установке профиль задаёт 869,525 МГц, BW 62,5 кГц, SF7, CR 4/7, TX 0, AF 9 и двухбайтовые хэши. При обновлении настроенного репитера используются его штатные настройки. При переходе с CityLink v1 настройки Wi-Fi берутся из устройства. Для обновления используйте раздел приложения и прежнюю разметку, чтобы сохранить NVS и файловую систему с идентичностью.
-
-## Сборка и стендовая проверка
-
-Из корня этой ветки — `pio run -e heltec_v43_netlink`. Образ приложения находится в `.pio/build/heltec_v43_netlink/firmware.bin`. Для USB-обновления указывайте активный раздел приложения (после OTA это может быть второй слот). Для OTA загружайте образ приложения в режиме Firmware. NVS, SPIFFS и разметку при обновлении сохраняйте.
-
-Счётчик `trim` в `netlink.diag N` показывает кадры, снятые при ручном уменьшении очереди. При включении слота его timeout должен быть больше keepalive. Один образ приложения подходит для OTA и USB.
-
-После ping без ответа исходящий пир проверяет настроенный адрес ещё до timeout. При down интервал Hello удваивается каждые 12 попыток с 5 секунд до 10 минут, с небольшим разбросом на длинных интервалах. Wi-Fi остаётся подключённым в штатном режиме modem sleep ESP32 и доступен для входящих соединений. Изменения параметров пира сбрасывают интервал попыток. После успешной синхронизации интервал NTP составляет сутки.
+Continue with [peer setup and the CLI reference](netlink.md).
