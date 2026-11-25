@@ -1,12 +1,18 @@
-# NetLink for MeshCore
+# MeshCore NetLink
 
-NetLink connects MeshCore repeaters over UDP. It is designed for places where two local LoRa networks can reach the internet or a shared LAN but cannot reach each other by radio.
+NetLink connects MeshCore repeaters over UDP. The repeaters can reach each other over a shared LAN or the internet.
 
 When a repeater finishes transmitting a LoRa frame, NetLink sends a copy to its peers. Each receiving repeater passes the frame to the normal MeshCore receive path. MeshCore decides whether to retransmit it and applies the local airtime budget. If the IP link goes down, both repeaters continue serving their local radio networks.
 
 **Release 0.9.3** · **Heltec V4.3 OLED** · Based on MeshCore `repeater-v1.18.0`
 
 [Installation and updates](docs/netlink-heltec.md) · [Peer setup and CLI reference](docs/netlink.md) · [Upstream MeshCore](https://github.com/meshcore-dev/MeshCore)
+
+## Typical uses
+
+- **Back up a weak radio link.** Pair the repeaters on either side of an unreliable hop. When a frame fails to cross that hop over LoRa, its IP copy can still reach the far repeater.
+- **Shorten routes across a large mesh.** Link two parts of a city where packets normally cross several radio hops. A frame can reach the far side sooner and continue over LoRa from there.
+- **Stay on your home mesh while traveling.** Bring a NetLink repeater, connect it to Wi-Fi or a phone hotspot, and let it dial a reachable peer at home. Your companion can talk to the nearby repeater over LoRa as usual.
 
 ## Quick start
 
@@ -63,3 +69,5 @@ pio run -e heltec_v43_netlink
 The application image is `.pio/build/heltec_v43_netlink/firmware.bin`. The same image works for OTA and USB application updates. See the installation guide for the partition requirements.
 
 NetLink extends the [MeshCore repeater](https://github.com/meshcore-dev/MeshCore/tree/repeater-v1.18.0/examples/simple_repeater). This fork retains the upstream [MIT license](license.txt).
+
+**Remember, MeshCore is a radio network first.** Use NetLink sparingly and leave room on the air for your neighbors.
