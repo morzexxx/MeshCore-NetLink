@@ -15,7 +15,7 @@ The UDP link authenticates traffic using the MeshCore identities and a direction
 
 ## Commands
 
-Slots are numbered 1вЂ“4. Configuration changes persist across restarts. A public key is 64 hex characters.
+Slots are numbered 1–4. Configuration changes persist across restarts. A public key is 64 hex characters.
 
 | Command | Purpose |
 |---|---|
@@ -23,16 +23,16 @@ Slots are numbered 1вЂ“4. Configuration changes persist across restarts. A p
 | `netlink.wifi` | Show SSID, connection state, address and signal strength. |
 | `netlink.ssid NAME` / `netlink.pass PASSWORD` | Set the Wi-Fi network or password and reconnect. |
 | `netlink.wifi scan` / `netlink.wifi list [PAGE]` | Start a 2.4 GHz scan, then read the last successful result by descending RSSI. |
-| `netlink.port PORT` | Set the listening UDP port (1вЂ“65535, default 4242). |
+| `netlink.port PORT` | Set the listening UDP port (1–65535, default 4242). |
 | `netlink.peer N KEY` | Add or replace the peer in slot N. Replacing the key resets that slot's options. |
 | `netlink.peer N off` / `netlink.peer N on` | Disable or enable a configured peer, retaining its settings. To enable a slot, its timeout must exceed the current keepalive interval. |
 | `netlink.del N` | Remove the slot and release its queue. |
 | `netlink.addr N HOST [PORT]` / `netlink.addr N -` | Set a dial address (IPv4 or DNS), or listen passively. Default port 4242. |
-| `netlink.snr N [dB]` | Read or set the incoming SNR, в€’32 to +31.75 dB, rounded to the nearest quarter dB. Default +8 dB. |
-| `netlink.rssi N DBM` | Set the synthetic radio RSSI for received frames, в€’127 to 0, default в€’30. |
+| `netlink.snr N [dB]` | Read or set the incoming SNR, −32 to +31.75 dB, rounded to the nearest quarter dB. Default +8 dB. |
+| `netlink.rssi N DBM` | Set the synthetic radio RSSI for received frames, −127 to 0, default −30. |
 | `netlink.queue N` | Read the configured capacity and lifetime. |
-| `netlink.queue N DEPTH SECONDS` / `netlink.queue N 0` | Set capacity (1вЂ“32) and lifetime (3вЂ“3600 s), or request unacknowledged delivery. Defaults: 8 frames, 60 s. |
-| `netlink.ka SECONDS` | Set the common keepalive interval (1вЂ“3600 s, default 25). It must fit below every enabled peer timeout. |
+| `netlink.queue N DEPTH SECONDS` / `netlink.queue N 0` | Set capacity (1–32) and lifetime (3–3600 s), or request unacknowledged delivery. Defaults: 8 frames, 60 s. |
+| `netlink.ka SECONDS` | Set the common keepalive interval (1–3600 s, default 25). It must fit below every enabled peer timeout. |
 | `netlink.timeout N [SECONDS]` | Read or set the receive timeout, greater than keepalive and at most 65535 s. Default 120 s; an existing longer keepalive uses keepalive + 1. |
 | `netlink.status [N]` | Show the peer summary or detailed live state. |
 | `netlink.diag [N]` | Show socket statistics, or the peer's queue eviction, expiry and offline discard counts. |

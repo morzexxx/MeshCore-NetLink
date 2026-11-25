@@ -8,6 +8,10 @@ When a repeater finishes transmitting a LoRa frame, NetLink sends a copy to its 
 
 [Installation and updates](docs/netlink-heltec.md) · [Peer setup and CLI reference](docs/netlink.md) · [Upstream MeshCore](https://github.com/meshcore-dev/MeshCore)
 
+## Supported hardware
+
+This release supports one board: the **Heltec V4.3 OLED**. Other boards in the upstream MeshCore source tree have no NetLink build profile in this release.
+
 ## Connect two repeaters
 
 1. Install NetLink on both boards. Open the repeater CLI over USB or an authenticated LoRa admin session.
