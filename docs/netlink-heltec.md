@@ -6,7 +6,7 @@ NetLink 0.9.3 targets the Heltec V4.3 OLED with the upstream 16 MB flash layout.
 
 1. Run `start ota` in the repeater CLI. The board returns an update URL.
 2. Connect to the board's `MeshCore-OTA` Wi-Fi network and open the returned URL, including `/update`. The root page displays the repeater name.
-3. Choose **Firmware**, upload the application image, and let the board restart.
+3. Select **Firmware** for the release `.bin`. It contains only the repeater application. The **Filesystem** upload target writes over the filesystem partition, which holds the repeater identity and settings. Check the selected target before uploading, then let the board restart.
 4. Reconnect to the CLI. Run `ver` to check for `v1.18.0-netlink.0.9.3`. Use `get name`, `get radio`, and `netlink.status` to check the configuration.
 
 ## Update an existing repeater over USB

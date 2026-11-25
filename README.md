@@ -8,19 +8,43 @@ When a repeater finishes transmitting a LoRa frame, NetLink sends a copy to its 
 
 [Installation and updates](docs/netlink-heltec.md) · [Peer setup and CLI reference](docs/netlink.md) · [Upstream MeshCore](https://github.com/meshcore-dev/MeshCore)
 
+## Quick start
+
+**Flashing an existing Heltec V4.3 OLED? Choose Firmware in the OTA updater.** The release `.bin` contains only the repeater application. The **Filesystem** option writes a different partition. A normal Firmware update on the supported partition layout preserves the repeater's identity and settings. For a blank board or a USB update, follow the [installation guide](docs/netlink-heltec.md).
+
+**1. Check both repeaters.** Set up each one as a normal MeshCore repeater and verify that it works over LoRa. Then open each repeater's CLI over USB or an authenticated LoRa admin session. Replace the placeholders below with your own values.
+
+**2. Connect both repeaters to Wi-Fi.** On each one, run:
+
+```text
+netlink.ssid <SSID>
+netlink.pass <WIFI_PASSWORD>
+netlink.wifi
+```
+
+Look for `up` and an IP address. To check the clock, run `netlink.status`; its first line shows `ntp=ok` after the first time sync.
+
+**3. Exchange public keys.** Run `netlink.id` on each board. On A, enter B's full 64-character public key. On B, enter A's. This example uses slot 1; choose a free slot on each board.
+
+```text
+netlink.peer 1 <OTHER_REPEATER_PUBLIC_KEY>
+```
+
+**4. Set one reachable address.** For an internet link, one side needs a publicly reachable UDP endpoint. If A is behind a router with a public IPv4 address, forward **UDP 4242** to A's LAN address on port **4242**. On a shared LAN, B can reach A directly at its LAN address.
+
+On **B** (the dialing side), run:
+
+```text
+netlink.addr 1 <A_IP_OR_DNS>
+```
+
+The port defaults to 4242. If the router exposes another port, append it after the address. As with WireGuard peers, either end can initiate when it knows a reachable endpoint. Both repeaters listen for incoming peers.
+
+**5. Check the link.** Run `netlink.status` on each board and look for `up` beside the peer. Use `netlink.status 1` for details. The OLED status screen shows the connected peer count as `Peers: N`.
+
 ## Supported hardware
 
-This release supports one board: the **Heltec V4.3 OLED**. Other boards in the upstream MeshCore source tree have no NetLink build profile in this release.
-
-## Connect two repeaters
-
-1. Install NetLink on both boards. Open the repeater CLI over USB or an authenticated LoRa admin session.
-2. On each board, set the Wi-Fi network with `netlink.ssid <SSID>` and `netlink.pass <PASSWORD>`. Check the assigned IP with `netlink.wifi`.
-3. Run `netlink.id` on both repeaters. On each one, add the other repeater's full public key with `netlink.peer 1 <PUBLIC_KEY>`. Use a free slot if slot 1 is already in use.
-4. On the dialing repeater, set `netlink.addr 1 hub.example.org 4242`, replacing the example hostname with the reachable repeater's address. If that repeater is behind a router, forward the external UDP port to its listening port (4242 by default).
-5. Run `netlink.status 1` on both boards. An established link shows `up`. In acknowledged mode, `rx` counts frames accepted locally and `tx` counts frames acknowledged by the peer.
-
-Each repeater can listen and dial at the same time. One reachable endpoint is enough for a pair. Both ends can also have a configured address.
+The Heltec V4.3 OLED is the only board supported by this release.
 
 ## Delivery and identity
 
