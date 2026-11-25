@@ -1,4 +1,7 @@
 #include "Dispatcher.h"
+#ifdef MESHCORE_NETLINK
+#include <NetLink.h>
+#endif
 
 #if MESH_PACKET_LOGGING
   #include <Arduino.h>
@@ -149,6 +152,7 @@ void Dispatcher::loop() {
 bool Dispatcher::tryParsePacket(Packet* pkt, const uint8_t* raw, int len) {
   int i = 0;
 
+  if (len < 2) return false;
   pkt->header = raw[i++];
   if (pkt->getPayloadVer() > PAYLOAD_VER_1) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): unsupported packet version", getLogDateTime());
@@ -156,6 +160,7 @@ bool Dispatcher::tryParsePacket(Packet* pkt, const uint8_t* raw, int len) {
   }
 
   if (pkt->hasTransportCodes()) {
+    if (len < 6) return false;
     memcpy(&pkt->transport_codes[0], &raw[i], 2); i += 2;
     memcpy(&pkt->transport_codes[1], &raw[i], 2); i += 2;
   } else {
@@ -195,18 +200,34 @@ void Dispatcher::checkRecv() {
   {
     uint8_t raw[MAX_TRANS_UNIT+1];
     int len = _radio->recvRaw(raw, MAX_TRANS_UNIT);
+    float snr = 0, rssi = 0;
+    bool fromLink = false;
     if (len > 0) {
-      logRxRaw(_radio->getLastSNR(), _radio->getLastRSSI(), raw, len);
+      snr = _radio->getLastSNR();
+      rssi = _radio->getLastRSSI();
+    }
+#ifdef MESHCORE_NETLINK
+    else {
+      len = netlink::receive(raw, rssi);
+      fromLink = len > 0;
+      snr = 8.0f; // IP has no measured RF noise floor.
+    }
+#endif
+    if (len > 0) {
+      logRxRaw(snr, rssi, raw, len);
 
       pkt = _mgr->allocNew();
       if (pkt == NULL) {
         MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): WARNING: received data, no unused packets available!", getLogDateTime());
       } else {
         if (tryParsePacket(pkt, raw, len)) {
-          pkt->_snr = _radio->getLastSNR() * 4.0f;
-          score = _radio->packetScore(_radio->getLastSNR(), len);
+#ifdef MESHCORE_NETLINK
+          if (fromLink) netlink::accepted();
+#endif
+          pkt->_snr = snr * 4.0f;
+          score = _radio->packetScore(snr, len);
           air_time = _radio->getEstAirtimeFor(len);
-          rx_air_time += air_time;
+          if (!fromLink) rx_air_time += air_time;
         } else {
           _mgr->free(pkt);  // put back into pool
           pkt = NULL;

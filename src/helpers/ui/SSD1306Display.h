@@ -40,6 +40,9 @@ public:
   void setColor(ColorVal c) override;
   void setCursor(int x, int y) override;
   void print(const char* str) override;
+#ifdef MESHCORE_NETLINK
+  void printStatusRow(unsigned row, const char* text, unsigned page);
+#endif
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
   void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;

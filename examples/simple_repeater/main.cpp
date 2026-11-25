@@ -2,6 +2,10 @@
 #include <Mesh.h>
 
 #include "MyMesh.h"
+#ifdef MESHCORE_NETLINK
+#include <NetLink.h>
+#include <esp_partition.h>
+#endif
 
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
@@ -73,7 +77,25 @@ void setup() {
   fs = &InternalFS;
   IdentityStore store(InternalFS, "");
 #elif defined(ESP32)
+#ifdef MESHCORE_NETLINK
+  // Format only an erased data partition. A failed mount on an existing node
+  // must not destroy its identity, ACL or radio preferences during an update.
+  if (!SPIFFS.begin(false)) {
+    const auto* part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+    uint8_t bytes[256];
+    bool blank = part != nullptr;
+    for (size_t pos = 0; blank && pos < part->size; pos += sizeof bytes) {
+      blank = esp_partition_read(part, pos, bytes, sizeof bytes) == ESP_OK;
+      for (uint8_t b : bytes) if (b != 0xff) { blank = false; break; }
+    }
+    if (!blank || !SPIFFS.begin(true)) {
+      Serial.println("Cannot mount repeater storage; check partition layout.");
+      for (;;) delay(1000);
+    }
+  }
+#else
   SPIFFS.begin(true);
+#endif
   fs = &SPIFFS;
   IdentityStore store(SPIFFS, "/identity");
 #elif defined(RP2040_PLATFORM)
@@ -84,7 +106,14 @@ void setup() {
 #else
   #error "need to define filesystem"
 #endif
-  if (!store.load("_main", the_mesh.self_id)) {
+  const bool newIdentity = !store.load("_main", the_mesh.self_id);
+  if (newIdentity) {
+#ifdef MESHCORE_NETLINK
+    if (fs->exists("/identity/_main.id")) {
+      Serial.println("Cannot read the existing repeater identity.");
+      for (;;) delay(1000);
+    }
+#endif
     MESH_DEBUG_PRINTLN("Generating new keypair");
     the_mesh.self_id = radio_new_identity();   // create new random identity
     int count = 0;
@@ -104,7 +133,12 @@ void setup() {
 
   sensors.begin();
 
+#ifdef MESHCORE_NETLINK
+  the_mesh.begin(fs, newIdentity);
+  netlink::begin(the_mesh.self_id);
+#else
   the_mesh.begin(fs);
+#endif
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
@@ -196,6 +230,10 @@ void loop() {
 #endif
 
   the_mesh.loop();
+#ifdef MESHCORE_NETLINK
+  netlink::poll(rtc_clock);
+  delay(1);
+#endif
   sensors.loop();
 #ifdef DISPLAY_CLASS
   ui_task.loop();
@@ -206,6 +244,11 @@ void loop() {
   external_watchdog.loop();
 #endif
   if (the_mesh.getNodePrefs()->powersaving_enabled && !the_mesh.hasPendingWork()) {
+#ifdef MESHCORE_NETLINK
+    // As on the Wi-Fi companion, keep the mesh loop running while Wi-Fi is active.
+    // Modem sleep remains enabled; the board can sleep normally without NetLink.
+    if (netlink::needsAwake()) return;
+#endif
 #if defined(NRF52_PLATFORM)
     board.sleep(0); // nrf ignores seconds param, sleeps whenever possible
 #else

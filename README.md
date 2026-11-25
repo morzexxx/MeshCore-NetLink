@@ -1,3 +1,17 @@
+# NetLink for MeshCore
+
+NetLink 0.9.1 connects independent MeshCore repeaters over authenticated UDP.
+Each repeater keeps its own identity and radio settings. A peer receives a copy
+of a successfully transmitted LoRa frame and passes it through the ordinary
+MeshCore receiver. Local radio forwarding continues when a peer goes offline.
+
+This fork targets the **Heltec V4.3 OLED** and builds on the official
+`repeater-v1.18.0` tag. The PlatformIO environment is `heltec_v43_netlink`.
+The NetLink integration is gated by `MESHCORE_NETLINK`; upstream environments
+continue to build their original firmware.
+
+[Setup, CLI and updates](docs/netlink.md) | [Russian guide](docs/netlink-heltec.md)
+
 ## About MeshCore
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.

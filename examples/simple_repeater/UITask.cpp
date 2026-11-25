@@ -1,4 +1,8 @@
 #include "UITask.h"
+#ifdef MESHCORE_NETLINK
+#include "NetLink.h"
+#include <WiFi.h>
+#endif
 #include "target.h"
 #include <Arduino.h>
 #include <helpers/CommonCLI.h>
@@ -92,11 +96,24 @@ void UITask::renderCurrScreen() {
     _display->setCursor((_display->width() - poffWidth) / 2, 48);
     _display->drawTextCentered(_display->width()/2, 48, poweroff_string);
   } else {
+#ifdef MESHCORE_NETLINK
+    auto& oled = static_cast<SSD1306Display&>(*_display);
+    unsigned page = millis() / 3000;
+    bool online = netlink::wifiOnline();
+    oled.printStatusRow(0, _node_prefs->node_name, page);
+    snprintf(tmp, sizeof(tmp), "Wi-Fi: %s", online ? WiFi.SSID().c_str() : "no link");
+    oled.printStatusRow(1, tmp, page);
+    IPAddress ip = online ? WiFi.localIP() : IPAddress(0, 0, 0, 0);
+    snprintf(tmp, sizeof(tmp), "%s:%u", ip.toString().c_str(), netlink::listenPort());
+    oled.printStatusRow(2, tmp, page);
+    snprintf(tmp, sizeof(tmp), "Peers: %u, Vbat: %.2f", netlink::connectedPeers(),
+             _board->getBattMilliVolts() / 1000.0);
+    oled.printStatusRow(3, tmp, page);
+#else
     _display->setCursor(0, 0);
     _display->setTextSize(1);
     _display->setColor(UIColor::primary_txt);
     _display->print(_node_prefs->node_name);
-
     // freq / sf
     _display->setCursor(0, 20);
     sprintf(tmp, "FREQ: %06.3f SF%d", _node_prefs->freq, _node_prefs->sf);
@@ -106,6 +123,7 @@ void UITask::renderCurrScreen() {
     _display->setCursor(0, 30);
     sprintf(tmp, "BW: %03.2f CR: %d", _node_prefs->bw, _node_prefs->cr);
     _display->print(tmp);
+#endif
   }
 }
 

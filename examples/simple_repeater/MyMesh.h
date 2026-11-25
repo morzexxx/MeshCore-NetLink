@@ -67,11 +67,19 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
+#ifdef MESHCORE_NETLINK
+  #define FIRMWARE_BUILD_DATE   "25 Nov 2026"
+#else
   #define FIRMWARE_BUILD_DATE   "15 Oct 2026"
+#endif
 #endif
 
 #ifndef FIRMWARE_VERSION
+#ifdef MESHCORE_NETLINK
+  #define FIRMWARE_VERSION   "v1.18.0-netlink.0.9.1"
+#else
   #define FIRMWARE_VERSION   "v1.18.0"
+#endif
 #endif
 
 #define FIRMWARE_ROLE "repeater"
@@ -178,7 +186,7 @@ protected:
 public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables);
 
-  void begin(FILESYSTEM* fs);
+  void begin(FILESYSTEM* fs, bool newIdentity = false);
   void sendNodeDiscoverReq();
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }

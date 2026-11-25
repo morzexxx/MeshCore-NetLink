@@ -80,6 +80,39 @@ void SSD1306Display::print(const char* str) {
   display.print(str);
 }
 
+#ifdef MESHCORE_NETLINK
+void SSD1306Display::printStatusRow(unsigned row, const char* text, unsigned page) {
+  // The built-in font uses 6x8 cells. Keep all four rows 16 pixels tall.
+  char cells[64];
+  unsigned count = 0;
+  while (*text && count < sizeof(cells)) {
+    uint8_t c = static_cast<uint8_t>(*text);
+    if (strncmp(text, "\xF0\x9F\x94\x8B", 4) == 0) {
+      cells[count++] = 1; // battery in the repeater name
+      text += 4;
+    } else {
+      cells[count++] = c >= 32 && c < 127 ? c : '?';
+      ++text;
+      while ((static_cast<uint8_t>(*text) & 0xC0) == 0x80) ++text;
+    }
+  }
+  unsigned scaleX = count <= width() / 12 ? 2 : 1;
+  unsigned columns = width() / (6 * scaleX);
+  unsigned pages = (count + columns - 1) / columns;
+  unsigned first = pages ? (page % pages) * columns : 0;
+  int y = row * 16;
+  for (unsigned i = first; i < count && i < first + columns; ++i) {
+    int x = (i - first) * 6 * scaleX;
+    if (cells[i] == 1) {
+      display.drawRect(x, y + 3, 5 * scaleX, 11, _color);
+      display.fillRect(x + scaleX, y + 1, 3 * scaleX, 2, _color);
+    } else {
+      display.drawChar(x, y, cells[i], _color, _color, scaleX, 2);
+    }
+  }
+}
+#endif
+
 void SSD1306Display::fillRect(int x, int y, int w, int h) {
   display.fillRect(x, y, w, h, _color);
 }

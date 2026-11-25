@@ -1,4 +1,8 @@
 #include "MyMesh.h"
+#ifdef MESHCORE_NETLINK
+#include <NetLink.h>
+static float receivedRSSI, receivedSNR;
+#endif
 #include <algorithm>
 
 /* ------------------------------ Config -------------------------------- */
@@ -218,7 +222,11 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.batt_milli_volts = board.getBattMilliVolts();
     stats.curr_tx_queue_len = _mgr->getOutboundTotal();
     stats.noise_floor = (int16_t)_radio->getNoiseFloor();
+#ifdef MESHCORE_NETLINK
+    stats.last_rssi = receivedRSSI;
+#else
     stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
+#endif
     stats.n_packets_recv = radio_driver.getPacketsRecv();
     stats.n_packets_sent = radio_driver.getPacketsSent();
     stats.total_air_time_secs = getTotalAirTime() / 1000;
@@ -228,7 +236,11 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.n_recv_flood = getNumRecvFlood();
     stats.n_recv_direct = getNumRecvDirect();
     stats.err_events = _err_flags;
+#ifdef MESHCORE_NETLINK
+    stats.last_snr = receivedSNR * 4;
+#else
     stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
+#endif
     stats.n_direct_dups = ((SimpleMeshTables *)getTables())->getNumDirectDups();
     stats.n_flood_dups = ((SimpleMeshTables *)getTables())->getNumFloodDups();
     stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
@@ -468,6 +480,9 @@ const char *MyMesh::getLogDateTime() {
 }
 
 void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
+#ifdef MESHCORE_NETLINK
+  receivedRSSI=rssi; receivedSNR=snr;
+#endif
 #if MESH_PACKET_LOGGING
   Serial.print(getLogDateTime());
   Serial.print(" RAW: ");
@@ -489,7 +504,11 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
       f.print(getLogDateTime());
       f.printf(": RX, len=%d (type=%d, route=%s, payload_len=%d) SNR=%d RSSI=%d score=%d", len,
                pkt->getPayloadType(), pkt->isRouteDirect() ? "D" : "F", pkt->payload_len,
+#ifdef MESHCORE_NETLINK
+               (int)pkt->getSNR(), (int)receivedRSSI, (int)(score * 1000));
+#else
                (int)_radio->getLastSNR(), (int)_radio->getLastRSSI(), (int)(score * 1000));
+#endif
 
       if (pkt->getPayloadType() == PAYLOAD_TYPE_PATH || pkt->getPayloadType() == PAYLOAD_TYPE_REQ ||
           pkt->getPayloadType() == PAYLOAD_TYPE_RESPONSE || pkt->getPayloadType() == PAYLOAD_TYPE_TXT_MSG) {
@@ -503,6 +522,9 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 }
 
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
+#ifdef MESHCORE_NETLINK
+  netlink::transmit(*pkt);
+#endif
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 0) {
     bridge.sendPacket(pkt);
@@ -942,11 +964,33 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(default_scope.key, 0, sizeof(default_scope.key));
 }
 
-void MyMesh::begin(FILESYSTEM *fs) {
+void MyMesh::begin(FILESYSTEM *fs, bool newIdentity) {
+#ifndef MESHCORE_NETLINK
   mesh::Mesh::begin();
+#endif
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+#ifdef MESHCORE_NETLINK
+  const bool firstNetLinkBoot = netlink::firstInstall();
+  if (firstNetLinkBoot && newIdentity && !_fs->exists("/prefs.json") && !_fs->exists("/com_prefs")) {
+    _prefs.freq = 869.525f;
+    _prefs.bw = 62.5f;
+    _prefs.sf = 7;
+    _prefs.cr = 7;
+    _prefs.tx_power_dbm = 0;
+    _prefs.airtime_factor = 9;
+    _prefs.path_hash_mode = 1;
+    if (!strcmp(_prefs.node_name, ADVERT_NAME))
+      snprintf(_prefs.node_name, sizeof(_prefs.node_name), "Heltec-%02X%02X", self_id.pub_key[0], self_id.pub_key[1]);
+    if (!strcmp(_prefs.password, "password") || !_prefs.password[0])
+      snprintf(_prefs.password, sizeof(_prefs.password), "%08lx%06lx", (unsigned long)esp_random(), (unsigned long)(esp_random() & 0xFFFFFF));
+    if (_cli.savePrefs(_fs)) netlink::finishInstall();
+  } else if (firstNetLinkBoot) {
+    netlink::finishInstall();
+  }
+  mesh::Mesh::begin();
+#endif
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
@@ -1237,6 +1281,10 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     reply += 3;
     command += 3;
   }
+
+#ifdef MESHCORE_NETLINK
+  if (netlink::command(command, reply)) return;
+#endif
 
   // handle ACL related commands
   if (memcmp(command, "setperm ", 8) == 0) {   // format:  setperm {pubkey-hex} {permissions-int8}

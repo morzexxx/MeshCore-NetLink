@@ -23,7 +23,9 @@ void HeltecV4Board::begin() {
   }
 
   void HeltecV4Board::onBeforeTransmit(void) {
+#ifndef MESHCORE_NETLINK
     digitalWrite(P_LORA_TX_LED, HIGH);   // turn TX LED on
+#endif
     loRaFEMControl.setTxModeEnable();
   }
 
