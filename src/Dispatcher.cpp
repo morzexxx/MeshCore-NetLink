@@ -208,9 +208,8 @@ void Dispatcher::checkRecv() {
     }
 #ifdef MESHCORE_NETLINK
     else {
-      len = netlink::receive(raw, rssi);
+      len = netlink::receive(raw, rssi, snr);
       fromLink = len > 0;
-      snr = 8.0f; // IP has no measured RF noise floor.
     }
 #endif
     if (len > 0) {

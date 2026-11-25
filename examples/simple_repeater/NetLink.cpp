@@ -46,6 +46,7 @@ struct PeerOptions {
 struct Config {
   ConfigV1 base;
   PeerOptions options[peersMax];
+  int8_t snr[peersMax]; // MeshCore stores SNR in quarter dB.
 };
 static Config settings;
 static ConfigV1 &cfg = settings.base;
@@ -69,10 +70,10 @@ struct Peer {
   sockaddr_in endpoint, dial;
   uint64_t local, remote, remoteBoot, challenge, candidate;
   uint32_t serial, highest, seen, seenBits;
-  uint32_t lastRx, nextHello, dnsAt, ackDue, tx, rx, full, expired, offline;
+  uint32_t lastRx, nextHello, dnsAt, ackDue, tx, rx, full, expired, offline, trimmed;
   uint32_t queueDue, pingDue, retryUntil, rtt;
   uint16_t backoff;
-  bool up, ackPending, noAck, modern, retryEndpoint, hasRtt, keyValid;
+  bool received, up, ackPending, noAck, modern, retryEndpoint, hasRtt, keyValid;
   FrameQueue queue;
 };
 static Peer peers[peersMax];
@@ -327,10 +328,11 @@ void accepted() {
   scheduleAck(p);
   incoming.slot = -1;
 }
-int receive(uint8_t *raw, float &rssi) {
+int receive(uint8_t *raw, float &rssi, float &snr) {
   if (incoming.slot < 0) return 0;
   memcpy(raw, incoming.bytes, incoming.len);
   rssi = cfg.peer[incoming.slot].rssi;
+  snr = settings.snr[incoming.slot] / 4.0f;
   return incoming.len;
 }
 static void closeSocket();
@@ -386,7 +388,15 @@ static void readMessage(uint32_t now) {
       p.highest = 0;
       if (incoming.slot == int(i)) incoming.slot = -1;
     }
-    if (h.echo != p.local) return;
+    if (h.echo != p.local) {
+      // A restarted listener can hear a peer still using its previous session.
+      // Solicit a fresh challenge without accepting the packet or binding its address.
+      if (!p.up && !cfg.peer[i].host[0] && (h.kind == Ping || h.kind == Data) && due(now, p.nextHello)) {
+        sendMessage(i, Hello, src, 0);
+        p.nextHello = now + 2000;
+      }
+      return;
+    }
     if (p.up && (p.remote != h.token || p.remoteBoot != h.boot)) return;
     if (h.serial <= p.highest) return; // lost/reordered DATA is resent with a fresh serial
     if (h.kind == Close) {
@@ -419,6 +429,7 @@ static void readMessage(uint32_t now) {
       p.queueDue = now;
     }
     p.endpoint = src;
+    p.received = true;
     p.lastRx = now;
     p.pingDue = now + uint32_t(cfg.keep) * 1000;
     if (h.kind == Welcome || h.kind == Ping) sendMessage(i, Pong, src, p.remote);
@@ -562,18 +573,20 @@ void finishInstall() {
 void begin(mesh::LocalIdentity &identity) {
   self = &identity;
   boot = nonce();
-  cfg.version = 2;
+  cfg.version = 3;
   cfg.port = 4242;
   cfg.keep = 25;
   const size_t stored = prefs.getBytesLength("config");
+  constexpr size_t v2size = offsetof(Config, snr);
   if (stored) {
     Config saved{};
-    if ((stored == sizeof(ConfigV1) || stored == sizeof(Config)) &&
+    if ((stored == sizeof(ConfigV1) || stored == v2size || stored == sizeof(Config)) &&
         prefs.getBytes("config", &saved, stored) == stored &&
         ((stored == sizeof(ConfigV1) && saved.base.version == 1) ||
-         (stored == sizeof(Config) && saved.base.version == 2))) {
+         (stored == v2size && saved.base.version == 2) ||
+         (stored == sizeof(Config) && saved.base.version == 3))) {
       settings = saved;
-      cfg.version = 2;
+      cfg.version = 3;
     } else
       writableConfig = false; // Never replace an unknown schema with defaults.
   } else {
@@ -591,7 +604,8 @@ void begin(mesh::LocalIdentity &identity) {
     }
   }
   for (unsigned i = 0; i < peersMax; ++i) {
-    if (stored != sizeof(Config) || !writableConfig) settings.options[i] = defaults(cfg.keep);
+    if (stored < v2size || !writableConfig) settings.options[i] = defaults(cfg.keep);
+    if (stored != sizeof(Config) || !writableConfig) settings.snr[i] = 32;
     initPeer(i);
     if (enabled(i) && cfg.peer[i].host[0]) peers[i].queue.allocate(settings.options[i].depth);
   }
@@ -818,17 +832,26 @@ bool command(const char *line, char *reply) {
       else if (!enabled(i))
         strcpy(reply, "off");
       else {
-        char tx[12] = "-", drop[12] = "-", rtt[12] = "-";
+        char tx[12] = "-", drop[12] = "-", rtt[16] = "-";
         if (!p.noAck && (settings.options[i].depth || p.up)) {
           snprintf(tx, sizeof tx, "%lu", (unsigned long)p.tx);
           snprintf(drop, sizeof drop, "%lu", (unsigned long)(p.full + p.expired + p.offline));
-          if (p.hasRtt) snprintf(rtt, sizeof rtt, "%lu", (unsigned long)p.rtt);
+          if (p.hasRtt) snprintf(rtt, sizeof rtt, "%lums", (unsigned long)p.rtt);
         }
         const char *mode = !p.up ? "-" : p.noAck ? "noack" : p.modern ? "ack" : "legacy-ack";
-        snprintf(reply, 156, "%s %s:%u age=%lus q=%u/%u tx=%s rx=%lu drop=%s rtt=%s mode=%s rssi=%d ka=%u",
-                 p.up ? "up" : "down", IPAddress(p.endpoint.sin_addr.s_addr).toString().c_str(),
-                 ntohs(p.endpoint.sin_port), (unsigned long)((millis() - p.lastRx) / 1000), p.queue.count(),
-                 p.queue.capacity(), tx, (unsigned long)p.rx, drop, rtt, mode, cfg.peer[i].rssi, cfg.keep);
+        char age[16] = "-";
+        if (p.received) snprintf(age, sizeof age, "%lus", (unsigned long)((millis() - p.lastRx) / 1000));
+        if (!p.up) {
+          const PeerConfig &c = cfg.peer[i];
+          if (c.host[0])
+            snprintf(reply, 156, "down %s:%u age=%s q=%u/%u", c.host, c.port, age, p.queue.count(), p.queue.capacity());
+          else
+            snprintf(reply, 156, "down age=%s q=%u/%u", age, p.queue.count(), p.queue.capacity());
+        } else {
+          snprintf(reply, 156, "up %s:%u age=%s q=%u/%u tx=%s rx=%lu drop=%s rtt=%s mode=%s rssi=%d ka=%u",
+                   IPAddress(p.endpoint.sin_addr.s_addr).toString().c_str(), ntohs(p.endpoint.sin_port), age,
+                   p.queue.count(), p.queue.capacity(), tx, (unsigned long)p.rx, drop, rtt, mode, cfg.peer[i].rssi, cfg.keep);
+        }
       }
     }
     return true;
@@ -840,11 +863,13 @@ bool command(const char *line, char *reply) {
       const Peer &p = peers[i];
       if (!cfg.peer[i].enabled)
         strcpy(reply, "empty");
-      else if (p.noAck)
-        strcpy(reply, "full=- expired=- offline=-");
+      else if (!enabled(i))
+        strcpy(reply, "off");
+      else if (p.noAck || (!p.up && !settings.options[i].depth))
+        strcpy(reply, "full=- expired=- offline=- trim=-");
       else
-        snprintf(reply, 100, "full=%lu expired=%lu offline=%lu", (unsigned long)p.full,
-                 (unsigned long)p.expired, (unsigned long)p.offline);
+        snprintf(reply, 100, "full=%lu expired=%lu offline=%lu trim=%lu", (unsigned long)p.full,
+                 (unsigned long)p.expired, (unsigned long)p.offline, (unsigned long)p.trimmed);
       return true;
     }
     snprintf(reply, 140, "udp=%s out=%lu in=%lu badmac=%lu err=%d", sock >= 0 ? "up" : "down",
@@ -865,7 +890,7 @@ bool command(const char *line, char *reply) {
     rebind = true;
   } else if (!strcmp(verb, "ka") && number(first, 1, 3600, value)) {
     for (unsigned i = 0; i < peersMax; ++i)
-      if (cfg.peer[i].enabled && value >= settings.options[i].timeout) {
+      if (enabled(i) && value >= settings.options[i].timeout) {
         snprintf(reply, 64, "ERR timeout %u", i + 1);
         return true;
       }
@@ -887,6 +912,10 @@ bool command(const char *line, char *reply) {
     if (!strcmp(verb, "peer") && item && (!strcmp(item, "on") || !strcmp(item, "off"))) {
       if (!c.enabled || arg()) return true;
       opt.disabled = !strcmp(item, "off");
+      if (!opt.disabled && opt.timeout <= cfg.keep) {
+        strcpy(reply, "ERR timeout");
+        return true;
+      }
     } else if (!strcmp(verb, "peer")) {
       uint8_t key[32];
       if (!decodeKey(item, key)) return true;
@@ -900,6 +929,7 @@ bool command(const char *line, char *reply) {
         c.port = 4242;
         c.rssi = -30;
         opt = defaults(cfg.keep);
+        updated.snr[i] = 32;
       }
       memcpy(c.key, key, 32);
       c.enabled = true;
@@ -927,6 +957,15 @@ bool command(const char *line, char *reply) {
       }
       if (!number(item, cfg.keep + 1, 65535, value) || arg()) return true;
       opt.timeout = value;
+    } else if (!strcmp(verb, "snr")) {
+      if (!item) {
+        snprintf(reply, 32, "%.2f dB", updated.snr[i] / 4.0f);
+        return true;
+      }
+      char *end;
+      const double db = strtod(item, &end);
+      if (*end || !isfinite(db) || db < -32 || db > 31.75 || arg()) return true;
+      updated.snr[i] = lround(db * 4);
     } else if (!strcmp(verb, "rssi") && number(item, -127, 0, value))
       c.rssi = value;
     else if (!strcmp(verb, "addr") && item && strlen(item) < sizeof c.host) {
@@ -988,7 +1027,10 @@ bool command(const char *line, char *reply) {
       p.retryEndpoint = wasUp;
       p.retryUntil = millis() + uint32_t(settings.options[i].timeout) * 1000;
     }
-    if (resize) p.queue = std::move(replacement);
+    if (resize) {
+      if (!reinit && !renegotiate) p.trimmed += p.queue.count() - replacement.count();
+      p.queue = std::move(replacement);
+    }
     p.queueDue = millis();
     if (addressChanged) {
       p.dial = {};

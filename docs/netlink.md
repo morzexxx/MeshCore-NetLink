@@ -1,4 +1,4 @@
-# NetLink 0.9.1
+# NetLink 0.9.2
 
 NetLink adds a UDP peer transport to the MeshCore 1.18.0 repeater for Heltec V4.3 OLED. Up to four peers can be configured. Each board has its own MeshCore identity, name and radio settings. Internet access is optional for local forwarding.
 
@@ -26,10 +26,11 @@ Slots are numbered 1–4. Configuration changes persist across restarts. A publi
 | `netlink.peer N off` / `netlink.peer N on` | Disable or enable a configured peer, retaining its settings. |
 | `netlink.del N` | Remove the slot and release its queue. |
 | `netlink.addr N HOST [PORT]` / `netlink.addr N -` | Set a dial address (IPv4 or DNS), or listen passively. Default port 4242. |
+| `netlink.snr N [dB]` | Read or set the incoming SNR, −32 to +31.75 dB, rounded to the nearest quarter dB. Default +8 dB. |
 | `netlink.rssi N DBM` | Set the synthetic radio RSSI for received frames, −127 to 0, default −30. |
 | `netlink.queue N` | Read the configured capacity and lifetime. |
 | `netlink.queue N DEPTH SECONDS` / `netlink.queue N 0` | Set capacity (1–32) and lifetime (3–3600 s), or request unacknowledged delivery. Defaults: 8 frames, 60 s. |
-| `netlink.ka SECONDS` | Set the common keepalive interval (1–3600 s, default 25). It must fit below every configured peer timeout. |
+| `netlink.ka SECONDS` | Set the common keepalive interval (1–3600 s, default 25). It must fit below every enabled peer timeout. |
 | `netlink.timeout N [SECONDS]` | Read or set the receive timeout, greater than keepalive and at most 65535 s. Default 120 s; an existing longer keepalive uses keepalive + 1. |
 | `netlink.status [N]` | Show the peer summary or detailed live state. |
 | `netlink.diag [N]` | Show socket statistics, or the peer's queue eviction, expiry and offline discard counts. |
@@ -47,7 +48,7 @@ A successful UDP send does not prove liveness. After the keepalive interval with
 
 ## Build and update
 
-Build with `pio run -e heltec_v43_netlink`. The output is `.pio/build/heltec_v43_netlink/firmware.bin`. For this release, `ver` returns `v1.18.0-netlink.0.9.1 (Build: 25 Nov 2026)`.
+Build with `pio run -e heltec_v43_netlink`. The output is `.pio/build/heltec_v43_netlink/firmware.bin`. For this release, `ver` returns `v1.18.0-netlink.0.9.2 (Build: 25 Nov 2026)`.
 
 For an existing Heltec V4.3 OLED with the upstream 16 MB partition map, run `start ota` and upload the application image as **Firmware**. For USB updates write only the application image to the confirmed bootable application slot. Slot 0 begins at `0x10000`; an OTA-updated device can boot slot 1. Preserve the boot selection, partition table, NVS and SPIFFS. Full erase, filesystem uploads and a changed partition map can remove the identity or settings. A blank board needs the correct bootloader and partition layout before an application-only image can boot.
 
@@ -56,3 +57,5 @@ The stock repeater preference loader imports older MeshCore settings. Existing i
 ## Upstream integration
 
 Track the upstream repeater tag and review the diff from that tag when rebasing. The `heltec_v43_netlink` environment extends the upstream Heltec repeater. The transport lives under `examples/simple_repeater/NetLink*`. Integration points are the TX completion and RX dispatcher, the authenticated repeater CLI, the main loop, and the OLED status page. CPU deep sleep is deferred while station Wi-Fi is configured or a scan is running; Wi-Fi modem sleep stays enabled. Upstream MeshCore licensing and notices apply.
+
+The `trim` diagnostic counts frames discarded by a manual capacity reduction. A slot can be enabled when its timeout exceeds keepalive. The same application binary supports USB and OTA updates.

@@ -10,7 +10,7 @@ bool needsAwake();
 uint16_t listenPort();
 unsigned connectedPeers();
 void transmit(const mesh::Packet &packet);
-int receive(uint8_t *bytes, float &rssi);
+int receive(uint8_t *bytes, float &rssi, float &snr);
 void accepted();
 bool command(const char *line, char *reply);
 bool firstInstall();
